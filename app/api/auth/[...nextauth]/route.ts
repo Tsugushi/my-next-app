@@ -1,7 +1,15 @@
 import NextAuth from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 
+const secret = process.env.NEXTAUTH_SECRET;
+
+if (!secret) {
+  // Vercel Runtime Logs に確実に出る
+  console.error("NEXTAUTH_SECRET is missing at runtime");
+}
+
 const handler = NextAuth({
+  secret, // ← ここで必ず設定される
   providers: [
     CredentialsProvider({
       name: "Credentials",
@@ -10,11 +18,9 @@ const handler = NextAuth({
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
-        // 🔐 環境変数からのみ取得（デフォルト値は使わない）
         const user = process.env.POC_USER;
         const pass = process.env.POC_PASS;
 
-        // 設定漏れ時は必ず認証失敗（安全側）
         if (!user || !pass) {
           console.error("POC_USER / POC_PASS is not set");
           return null;
@@ -24,27 +30,14 @@ const handler = NextAuth({
         const password = credentials?.password ?? "";
 
         if (username === user && password === pass) {
-          return {
-            id: "poc-user",
-            name: "PoC User",
-          };
+          return { id: "poc-user", name: "PoC User" };
         }
-
         return null;
       },
     }),
   ],
-
-  session: {
-    strategy: "jwt",
-  },
-
-  pages: {
-    signIn: "/signin",
-  },
-
-  secret: process.env.NEXTAUTH_SECRET,
+  session: { strategy: "jwt" },
+  pages: { signIn: "/signin" },
 });
 
 export { handler as GET, handler as POST };
-
