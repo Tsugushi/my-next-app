@@ -1,65 +1,161 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useMemo, useState } from "react";
+
+type Msg = {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  ts: number;
+};
+
+export default function Page() {
+  const [input, setInput] = useState("");
+  const [messages, setMessages] = useState<Msg[]>([
+    {
+      id: crypto.randomUUID(),
+      role: "assistant",
+      text: "こんにちは！PoC用のチャット画面です。質問を入力して送信してください（いまはダミー応答です）。",
+      ts: Date.now(),
+    },
+  ]);
+  const [isSending, setIsSending] = useState(false);
+
+  const canSend = useMemo(() => input.trim().length > 0 && !isSending, [input, isSending]);
+
+  async function onSend() {
+    const text = input.trim();
+    if (!text || isSending) return;
+
+    setIsSending(true);
+    setInput("");
+
+    const userMsg: Msg = {
+      id: crypto.randomUUID(),
+      role: "user",
+      text,
+      ts: Date.now(),
+    };
+    setMessages((prev) => [...prev, userMsg]);
+
+    // ダミー応答（後でChatGPT APIに置き換える）
+    await new Promise((r) => setTimeout(r, 600));
+    const assistantMsg: Msg = {
+      id: crypto.randomUUID(),
+      role: "assistant",
+      text: `（ダミー）「${text}」を受け取りました。次はAPI接続で本物の回答にします。`,
+      ts: Date.now(),
+    };
+    setMessages((prev) => [...prev, assistantMsg]);
+    setIsSending(false);
+  }
+
+  function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    // Enterで送信、Shift+Enterで改行
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      void onSend();
+    }
+  }
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <main style={styles.page}>
+      <header style={styles.header}>
+        <div style={{ fontWeight: 700 }}>GenAI PoC Chat (UI Only)</div>
+        <div style={{ color: "#666", fontSize: 12 }}>Next.js / Vercel デモ用（ダミー応答）</div>
+      </header>
+
+      <section style={styles.chat}>
+        {messages.map((m) => (
+          <div key={m.id} style={{ ...styles.row, justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
+            <div style={{ ...styles.bubble, ...(m.role === "user" ? styles.userBubble : styles.assistantBubble) }}>
+              <div style={{ whiteSpace: "pre-wrap" }}>{m.text}</div>
+              <div style={styles.meta}>{new Date(m.ts).toLocaleTimeString()}</div>
+            </div>
+          </div>
+        ))}
+        {isSending && (
+          <div style={{ ...styles.row, justifyContent: "flex-start" }}>
+            <div style={{ ...styles.bubble, ...styles.assistantBubble, opacity: 0.8 }}>送信中…</div>
+          </div>
+        )}
+      </section>
+
+      <footer style={styles.footer}>
+        <textarea
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={onKeyDown}
+          placeholder="質問を入力（Enterで送信 / Shift+Enterで改行）"
+          style={styles.textarea}
+          rows={3}
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+        <button onClick={onSend} disabled={!canSend} style={{ ...styles.button, opacity: canSend ? 1 : 0.5 }}>
+          送信
+        </button>
+      </footer>
+    </main>
   );
 }
+
+const styles: Record<string, React.CSSProperties> = {
+  page: {
+    minHeight: "100vh",
+    display: "flex",
+    flexDirection: "column",
+    background: "#f6f7f9",
+    color: "#111",
+    fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial",
+  },
+  header: {
+    padding: "16px 16px 8px",
+    maxWidth: 920,
+    width: "100%",
+    margin: "0 auto",
+  },
+  chat: {
+    flex: 1,
+    maxWidth: 920,
+    width: "100%",
+    margin: "0 auto",
+    padding: "8px 16px 16px",
+    overflowY: "auto",
+  },
+  row: { display: "flex", marginBottom: 10 },
+  bubble: {
+    maxWidth: "78%",
+    borderRadius: 14,
+    padding: "10px 12px",
+    boxShadow: "0 1px 2px rgba(0,0,0,0.08)",
+  },
+  userBubble: { background: "#111", color: "#fff" },
+  assistantBubble: { background: "#fff", color: "#111", border: "1px solid #e7e7e7" },
+  meta: { fontSize: 11, opacity: 0.65, marginTop: 6 },
+  footer: {
+    maxWidth: 920,
+    width: "100%",
+    margin: "0 auto",
+    padding: "12px 16px 18px",
+    display: "flex",
+    gap: 10,
+    alignItems: "flex-end",
+  },
+  textarea: {
+    flex: 1,
+    resize: "none",
+    borderRadius: 12,
+    border: "1px solid #ddd",
+    padding: 10,
+    outline: "none",
+    fontSize: 14,
+  },
+  button: {
+    borderRadius: 12,
+    border: "none",
+    padding: "10px 14px",
+    background: "#2b6cff",
+    color: "#fff",
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+};
