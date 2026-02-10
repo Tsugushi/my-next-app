@@ -1,6 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useSession, signOut } from "next-auth/react";
 
 type Msg = {
   id: string;
@@ -10,18 +12,38 @@ type Msg = {
 };
 
 export default function Page() {
-  const [input, setInput] = useState("");
+  const router = useRouter();
+  const { status } = useSession();
+
+  // ✅ 初期メッセージは固定値にして、Hydrationズレを回避
   const [messages, setMessages] = useState<Msg[]>([
     {
-      id: crypto.randomUUID(),
+      id: "welcome",
       role: "assistant",
       text: "Hello_test！PoC用のチャット画面です。質問を入力して送信してください（いまはダミー応答です）。",
-      ts: Date.now(),
+      ts: 0,
     },
   ]);
+  const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
 
-  const canSend = useMemo(() => input.trim().length > 0 && !isSending, [input, isSending]);
+  // ✅ 未認証なら /signin へ（チャット画面を見せない）
+  useEffect(() => {
+    if (status === "unauthenticated") {
+      router.replace("/signin");
+    }
+  }, [status, router]);
+
+  if (status === "loading") {
+    return <main style={{ padding: 20 }}>Loading...</main>;
+  }
+
+  if (status === "unauthenticated") {
+    // リダイレクトが走るまでの間は何も表示しない
+    return null;
+  }
+
+ const canSend = input.trim().length > 0 && !isSending;
 
   async function onSend() {
     const text = input.trim();
@@ -30,22 +52,28 @@ export default function Page() {
     setIsSending(true);
     setInput("");
 
+    const now = Date.now();
+
+    // ✅ id は毎回ユニークに（"welcome"固定はNG）
     const userMsg: Msg = {
-      id: crypto.randomUUID(),
+      id: `u-${now}-${Math.random()}`,
       role: "user",
       text,
-      ts: Date.now(),
+      ts: now,
     };
     setMessages((prev) => [...prev, userMsg]);
 
     // ダミー応答（後でChatGPT APIに置き換える）
     await new Promise((r) => setTimeout(r, 600));
+
+    const now2 = Date.now();
     const assistantMsg: Msg = {
-      id: crypto.randomUUID(),
+      id: `a-${now2}-${Math.random()}`,
       role: "assistant",
       text: `（ダミー）「${text}」を受け取りました。次はAPI接続で本物の回答にします。`,
-      ts: Date.now(),
+      ts: now2,
     };
+
     setMessages((prev) => [...prev, assistantMsg]);
     setIsSending(false);
   }
@@ -63,6 +91,15 @@ export default function Page() {
       <header style={styles.header}>
         <div style={{ fontWeight: 700 }}>GenAI PoC Chat (UI Only)</div>
         <div style={{ color: "#666", fontSize: 12 }}>Next.js / Vercel デモ用（ダミー応答）</div>
+
+        <div style={{ marginTop: 8 }}>
+          <button
+            onClick={() => signOut({ callbackUrl: "/signin" })}
+            style={{ ...styles.button, padding: "8px 10px" }}
+          >
+            Sign out
+          </button>
+        </div>
       </header>
 
       <section style={styles.chat}>
@@ -70,7 +107,7 @@ export default function Page() {
           <div key={m.id} style={{ ...styles.row, justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
             <div style={{ ...styles.bubble, ...(m.role === "user" ? styles.userBubble : styles.assistantBubble) }}>
               <div style={{ whiteSpace: "pre-wrap" }}>{m.text}</div>
-              <div style={styles.meta}>{new Date(m.ts).toLocaleTimeString()}</div>
+              <div style={styles.meta}>{m.ts ? new Date(m.ts).toLocaleTimeString() : ""}</div>
             </div>
           </div>
         ))}
