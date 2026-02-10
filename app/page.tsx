@@ -15,7 +15,7 @@ export default function Page() {
     {
       id: crypto.randomUUID(),
       role: "assistant",
-      text: "こんにちは！PoC用のチャット画面です。質問を入力して送信してください（いまはダミー応答です）。",
+      text: "Hello_test！PoC用のチャット画面です。質問を入力して送信してください（いまはダミー応答です）。",
       ts: Date.now(),
     },
   ]);
