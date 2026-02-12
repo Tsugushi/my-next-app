@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 
@@ -15,35 +15,42 @@ export default function Page() {
   const router = useRouter();
   const { status } = useSession();
 
-  // ✅ 初期メッセージは固定値にして、Hydrationズレを回避
+  // ✅ Hydrationズレ回避：初期メッセージは固定値
   const [messages, setMessages] = useState<Msg[]>([
     {
       id: "welcome",
       role: "assistant",
-      text: "Hello_test！PoC用のチャット画面です。質問を入力して送信してください（いまはダミー応答です）。",
+      text: "こんにちは！PoC用のチャット画面です。質問を入力して送信してください。",
       ts: 0,
     },
   ]);
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
 
-  // ✅ 未認証なら /signin へ（チャット画面を見せない）
+  // ✅ stale回避：最新messagesを参照する
+  const messagesRef = useRef<Msg[]>(messages);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  // ✅ 未認証なら /signin へ
   useEffect(() => {
     if (status === "unauthenticated") {
       router.replace("/signin");
     }
   }, [status, router]);
 
+  // Hookはここまでで固定。ここから下で条件returnしてOK。
   if (status === "loading") {
     return <main style={{ padding: 20 }}>Loading...</main>;
   }
 
   if (status === "unauthenticated") {
-    // リダイレクトが走るまでの間は何も表示しない
+    // リダイレクト実行中は表示しない
     return null;
   }
 
- const canSend = input.trim().length > 0 && !isSending;
+  const canSend = input.trim().length > 0 && !isSending;
 
   async function onSend() {
     const text = input.trim();
@@ -53,29 +60,69 @@ export default function Page() {
     setInput("");
 
     const now = Date.now();
-
-    // ✅ id は毎回ユニークに（"welcome"固定はNG）
     const userMsg: Msg = {
       id: `u-${now}-${Math.random()}`,
       role: "user",
       text,
       ts: now,
     };
+
+    // 先に画面へ反映
     setMessages((prev) => [...prev, userMsg]);
 
-    // ダミー応答（後でChatGPT APIに置き換える）
-    await new Promise((r) => setTimeout(r, 600));
+    try {
+      // 送信する履歴（最新 + 今回のユーザー発言）
+      const payloadMessages = [...messagesRef.current, userMsg].map((m) => ({
+        role: m.role,
+        text: m.text,
+      }));
 
-    const now2 = Date.now();
-    const assistantMsg: Msg = {
-      id: `a-${now2}-${Math.random()}`,
-      role: "assistant",
-      text: `（ダミー）「${text}」を受け取りました。次はAPI接続で本物の回答にします。`,
-      ts: now2,
-    };
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: payloadMessages }),
+      });
 
-    setMessages((prev) => [...prev, assistantMsg]);
-    setIsSending(false);
+      if (!res.ok) {
+        const errText = await res.text();
+        const t = Date.now();
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `a-${t}-${Math.random()}`,
+            role: "assistant",
+            text: `（エラー）API呼び出しに失敗しました: ${res.status}\n${errText}`,
+            ts: t,
+          },
+        ]);
+        return;
+      }
+
+      const data = (await res.json()) as { text?: string };
+      const t = Date.now();
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `a-${t}-${Math.random()}`,
+          role: "assistant",
+          text: (data.text ?? "").trim() || "（空の応答でした）",
+          ts: t,
+        },
+      ]);
+    } catch (e: any) {
+      const t = Date.now();
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `a-${t}-${Math.random()}`,
+          role: "assistant",
+          text: `（例外）通信に失敗しました: ${e?.message ?? String(e)}`,
+          ts: t,
+        },
+      ]);
+    } finally {
+      setIsSending(false);
+    }
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -89,13 +136,15 @@ export default function Page() {
   return (
     <main style={styles.page}>
       <header style={styles.header}>
-        <div style={{ fontWeight: 700 }}>GenAI PoC Chat (UI Only)</div>
-        <div style={{ color: "#666", fontSize: 12 }}>Next.js / Vercel デモ用（ダミー応答）</div>
+        <div style={{ fontWeight: 700 }}>GenAI PoC Chat</div>
+        <div style={{ color: "#666", fontSize: 12 }}>
+          Next.js / NextAuth / Vercel（ChatGPT API接続）
+        </div>
 
-        <div style={{ marginTop: 8 }}>
+        <div style={{ marginTop: 10, display: "flex", gap: 10 }}>
           <button
             onClick={() => signOut({ callbackUrl: "/signin" })}
-            style={{ ...styles.button, padding: "8px 10px" }}
+            style={{ ...styles.smallButton }}
           >
             Sign out
           </button>
@@ -104,16 +153,38 @@ export default function Page() {
 
       <section style={styles.chat}>
         {messages.map((m) => (
-          <div key={m.id} style={{ ...styles.row, justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
-            <div style={{ ...styles.bubble, ...(m.role === "user" ? styles.userBubble : styles.assistantBubble) }}>
+          <div
+            key={m.id}
+            style={{
+              ...styles.row,
+              justifyContent: m.role === "user" ? "flex-end" : "flex-start",
+            }}
+          >
+            <div
+              style={{
+                ...styles.bubble,
+                ...(m.role === "user" ? styles.userBubble : styles.assistantBubble),
+              }}
+            >
               <div style={{ whiteSpace: "pre-wrap" }}>{m.text}</div>
-              <div style={styles.meta}>{m.ts ? new Date(m.ts).toLocaleTimeString() : ""}</div>
+              <div style={styles.meta}>
+                {m.ts ? new Date(m.ts).toLocaleTimeString() : ""}
+              </div>
             </div>
           </div>
         ))}
+
         {isSending && (
           <div style={{ ...styles.row, justifyContent: "flex-start" }}>
-            <div style={{ ...styles.bubble, ...styles.assistantBubble, opacity: 0.8 }}>送信中…</div>
+            <div
+              style={{
+                ...styles.bubble,
+                ...styles.assistantBubble,
+                opacity: 0.85,
+              }}
+            >
+              送信中…
+            </div>
           </div>
         )}
       </section>
@@ -127,7 +198,11 @@ export default function Page() {
           style={styles.textarea}
           rows={3}
         />
-        <button onClick={onSend} disabled={!canSend} style={{ ...styles.button, opacity: canSend ? 1 : 0.5 }}>
+        <button
+          onClick={onSend}
+          disabled={!canSend}
+          style={{ ...styles.button, opacity: canSend ? 1 : 0.5 }}
+        >
           送信
         </button>
       </footer>
@@ -194,5 +269,13 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#fff",
     fontWeight: 700,
     cursor: "pointer",
+  },
+  smallButton: {
+    borderRadius: 10,
+    border: "1px solid #ddd",
+    padding: "8px 10px",
+    background: "#fff",
+    cursor: "pointer",
+    fontWeight: 600,
   },
 };
